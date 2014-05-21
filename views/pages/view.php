@@ -18,6 +18,7 @@ $this->params['breadcrumbs'][] = $this->title;
 
     <p>
         <?= Html::a('Update', ['update', 'id' => $model->_id], ['class' => 'btn btn-primary']) ?>
+
         <?= Html::a('Delete', ['delete', 'id' => $model->_id], [
             'class' => 'btn btn-danger',
             'data' => [
@@ -25,6 +26,10 @@ $this->params['breadcrumbs'][] = $this->title;
                 'method' => 'post',
             ],
         ]) ?>
+
+		<?= Html::a('Book', ['books/view', 'id' => (string)$model->book_id], [
+			'class' => 'btn btn-primary',
+		]) ?>
     </p>
 
     <?= DetailView::widget([
@@ -33,9 +38,12 @@ $this->params['breadcrumbs'][] = $this->title;
             '_id',
             'book_id',
             'page',
-            'text',
             'lang',
         ],
     ]) ?>
+	<pre>
+		<?=$model->text?>
+
+	</pre>
 
 </div>

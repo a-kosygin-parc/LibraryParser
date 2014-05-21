@@ -30,8 +30,8 @@ $this->params['breadcrumbs'][] = $this->title;
 
             '_id',
             'book_id',
-            'page',
-            'text',
+            ['content' => function($model){return $model->page;}],
+            ['format' => 'text', 'label' => 'label', 'attribute' => 'text', 'content' => function ($model){return mb_substr($model->text, 0, 81, 'utf-8');}],
             'lang',
 
             ['class' => 'yii\grid\ActionColumn'],

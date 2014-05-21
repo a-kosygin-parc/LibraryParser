@@ -207,7 +207,7 @@ class Parser
 
 			switch ($book->extension) {
 				case 'pdf':
-					system(\Yii::$app->params['EXEC_PDF_DECODE'] . '  -sDEVICE=jpeg -o ' . $this->getTempDir() . '\p%d.jpg -dFirstPage=1 -dLastPage=20 "' . $filename . '"');
+					system(\Yii::$app->params['EXEC_PDF_DECODE'] . '  -r300x300 -sDEVICE=jpeg -o ' . $this->getTempDir() . '\p%d.jpg -dFirstPage=1 -dLastPage=20 "' . $filename . '"');
 					$final_status = Book::STATUS_RECOGNITED_PARTIAL;
 					break;
 
