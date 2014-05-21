@@ -37,7 +37,7 @@ class Parser
 			$cursor = $query
 				->select(['filename'])
 				->from(\app\models\Book::collectionName())
-				->where(array('parse_status' => \app\models\Book::STATUS_RECOGNITED))
+				->where(array('IN', 'parse_status', [\app\models\Book::STATUS_RECOGNITED, \app\models\Book::STATUS_RECOGNITED_PARTIAL]))
 				->all();
 
 			foreach ($cursor as $item) {
@@ -150,7 +150,7 @@ class Parser
 
 		$path_parts = pathinfo($filename);
 
-		if (!in_array(strtolower($path_parts['extension']), array('djvu', 'djv'))) {
+		if (!in_array(strtolower($path_parts['extension']), array('djvu', 'djv', 'pdf'))) {
 			throw new \Exception($filename . ' not is DJVU expected.');
 		}
 
@@ -196,10 +196,30 @@ class Parser
 			return;
 		}
 
+		if ($book->parse_status == Book::STATUS_RECOGNITED_PARTIAL) {
+			echo $book->filename . ' ALREADY RECOGNITED PARTIAL' . PHP_EOL;
+			return;
+		}
+
+		$final_status = Book::STATUS_RECOGNITED;
 		if ($book->parse_status != Book::STATUS_PROCESS || $this->_worker->processing == $book->filename) {
 			$this->cleanTempDir();
 
-			system(\Yii::$app->params['EXEC_DJVUDECODE'] . ' --output-format=tif --dpi=300 "' . $filename . '" ' . $this->getTempDir());
+			switch ($book->extension) {
+				case 'pdf':
+					system(\Yii::$app->params['EXEC_PDF_DECODE'] . '  -sDEVICE=jpeg -o ' . $this->getTempDir() . '\p%d.jpg -dFirstPage=1 -dLastPage=20 "' . $filename . '"');
+					$final_status = Book::STATUS_RECOGNITED_PARTIAL;
+					break;
+
+				case 'djvu':
+				case 'djv':
+					system(\Yii::$app->params['EXEC_DJVU_DECODE'] . ' --page-range=1-20 --output-format=tif --dpi=300 "' . $filename . '" ' . $this->getTempDir());
+					$final_status = Book::STATUS_RECOGNITED_PARTIAL;
+					break;
+
+				default:
+					throw new \Exception('Unknown extension ' . $book->extension);
+			}
 
 			$book->parse_status = Book::STATUS_PROCESS;
 			$book->save();
@@ -210,7 +230,7 @@ class Parser
 		// Перегоняем распознанные страницы в базу данных
 		$this->mapReduce($this->getTempDir() . '/', array($this, 'recognite'), array('book' => $book));
 
-		$book->parse_status = Book::STATUS_RECOGNITED;
+		$book->parse_status = $final_status;
 		$book->save();
 
 		$this->unLock();
@@ -230,7 +250,7 @@ class Parser
 
 		$path_parts = pathinfo($img_file);
 
-		if (!in_array(strtolower($path_parts['extension']), array('tif', 'tiff'))) {
+		if (!in_array(strtolower($path_parts['extension']), array('tif', 'tiff', 'jpg', 'jpeg'))) {
 			echo '?';
 			return;
 		}

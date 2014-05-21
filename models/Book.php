@@ -23,7 +23,8 @@ class Book extends ActiveRecord
 	Const
 		STATUS_NONE = '',
 		STATUS_PROCESS = 'p',
-		STATUS_RECOGNITED = 'r';
+		STATUS_RECOGNITED = 'r',
+		STATUS_RECOGNITED_PARTIAL = 'f';
 
 	public function rules()
 	{
