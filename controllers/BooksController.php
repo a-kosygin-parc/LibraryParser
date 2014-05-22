@@ -5,6 +5,7 @@ namespace app\controllers;
 use Yii;
 use app\models\Book;
 use app\models\BooksSearch;
+use yii\filters\AccessControl;
 use yii\web\Controller;
 use yii\web\NotFoundHttpException;
 use yii\filters\VerbFilter;
@@ -23,6 +24,23 @@ class BooksController extends Controller
                     'delete' => ['post'],
                 ],
             ],
+
+			'access' => [
+				'class' => AccessControl::className(),
+				'only' => ['update', 'create',],
+				'rules' => [
+					[
+						'allow' => true,
+						'actions' => ['update', 'create', 'delete'],
+						'roles' => ['admins'],
+					],
+					[
+						'allow' => true,
+						'actions' => ['index', 'view'],
+						'roles' => ['*'],
+					],
+				],
+			],
         ];
     }
 
