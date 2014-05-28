@@ -3,7 +3,6 @@
 namespace app\models;
 
 use Yii;
-use yii\base\Model;
 use yii\mongodb\ActiveRecord;
 
 /**
@@ -26,30 +25,32 @@ class Book extends ActiveRecord
 		STATUS_RECOGNITED = 'r',
 		STATUS_RECOGNITED_PARTIAL = 'f';
 
+	public static $statuses = [
+		self::STATUS_NONE,
+		self::STATUS_PROCESS,
+		self::STATUS_RECOGNITED,
+		self::STATUS_RECOGNITED_PARTIAL,
+	];
+
 	public function rules()
 	{
 		return array(
-			array('filename', 'string', 'max' => 1024),
-			array('extension', 'string'),
-			array('create_dt', 'safe'),
-			array('parse_status', 'default', 'value' => self::STATUS_NONE),
-			array('parse_status', 'string'),
-			array('parse_status', 'in', 'range' => array(self::STATUS_NONE, self::STATUS_PROCESS, self::STATUS_RECOGNITED)),
-			array('hash', 'string'),
+			['filename', 'string', 'max' => 1024],
+			['extension', 'string'],
+			['create_dt', 'safe'],
+			['parse_status', 'default', 'value' => self::STATUS_NONE],
+			['parse_status', 'string'],
+			['parse_status', 'in', 'range' => self::$statuses],
+			['hash', 'string'],
 		);
 	}
 
-	public function setFilename($value)
-	{
-		if (file_exists($value)) {
-			$path_parts = pathinfo($value);
-			$this->extension = strtolower($path_parts['extension']);
-		}
-	}
-
+	/**
+	 * @return \yii\db\ActiveQueryInterface
+	 */
 	public function getPages()
 	{
-		return $this->hasMany('Page', ['book_id' => '_id']);
+		return $this->hasMany(Page::className(), ['book_id' => '_id']);
 	}
 
 	public function beforeSave($insert)
@@ -59,6 +60,9 @@ class Book extends ActiveRecord
 		}
 		elseif (is_string($this->create_dt)) {
 			$this->create_dt = new \MongoDate(strtotime($this->create_dt));
+		}
+		if (empty($this->extension)) {
+			$this->extension = strtolower(substr($this->filename, strrpos($this->filename, '.') + 1));
 		}
 		return parent::beforeSave($insert);
 	}
@@ -78,4 +82,16 @@ class Book extends ActiveRecord
     {
         return ['_id', 'filename', 'extension', 'create_dt', 'parse_status', 'hash'];
     }
+
+	public function beforeDelete()
+	{
+		$pages = $this->getPages();
+		if ($pages && $pages->count()) {
+			foreach ($pages->all() as $page) {
+				$page->delete();
+			}
+		}
+
+		return parent::beforeDelete();
+	}
 }

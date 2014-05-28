@@ -2,6 +2,7 @@
 namespace app\commands;
 
 use app\library\SplitterFabric;
+use app\models\Book;
 use yii\console\Controller;
 
 class TestController extends Controller
@@ -36,15 +37,11 @@ class TestController extends Controller
 
 	public function actionTest()
 	{
-		//$splitter = Splitter::create('D:\apps\test\Adam D. Vosprijatie, soznanie, pamyat#. Razmyshlenija biologa (Mir, 1983)(ru)(L)(T)(75s).djvu');
-		$splitter = SplitterFabric::create('L:\app\test\Design Patterns by D.pdf', ['from' => -1, 'to' => 2, 'destination' => 'L:\app\test']);
-		if ($splitter)
-		var_dump(
-			$splitter->getAttributes(),
-			$splitter->validate(),
-			$splitter->getErrors(),
-			$splitter->className()
-			, array_map(function ($a){return $a->getAttributes();}, $splitter->split('L:\app\test\Design Patterns by D.pdf')['pages'])
-		);
+		$book = new Book();
+		$book->filename = 'D:\work\test.pdf';
+		$book->validate();
+		$book->save();
+		var_dump($book->extension, $book->errors);
+		$book->delete();
 	}
 }

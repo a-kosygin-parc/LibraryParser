@@ -2,6 +2,7 @@
 namespace app\library;
 
 use app\core\FileHelper;
+use app\core\ValidateException;
 use app\library\Recognite\Processor;
 use app\models\Book;
 use app\models\Page;
@@ -88,7 +89,7 @@ class Parser
 		$this->_worker->delete();
 	}
 
-	private function splitBookToImages($filename)
+	public function splitBookToImages($filename)
 	{
 		// Пропускаем уже распознанные файлы
 		if (($pos = array_search($filename, $this->_skip_files)) !== false) {
@@ -104,7 +105,7 @@ class Parser
 		}
 
 		// Подбираем правильный сплиттер
-		$splitter = Splitter::create($filename);
+		$splitter = SplitterFabric::create($filename);
 
 		if (!$splitter) {
 			\Yii::getLogger()->log(sprintf('File %s extension not supported', $filename), Logger::LEVEL_INFO, self::LOG_CATEGORY);
@@ -136,7 +137,7 @@ class Parser
 			$book->hash = $hash;
 			$book->create_dt = new \MongoDate();
 			$book->parse_status = Book::STATUS_NONE;
-			$book->extension = strtolower(substr($filename, strrpos('.', $filename) + 1));
+			//$book->extension = strtolower(substr($filename, strrpos($filename, '.') + 1));
 			$book->insert();
 			echo '#';
 		}
@@ -166,15 +167,19 @@ class Parser
 			$this->cleanTempDir();
 
 			$queue_pages = $splitter
-				->setDestination($this->getTempDir())
-				->setFrom(1)
-				->setTo(10)
+				->setAttributes([
+					'destination' => $this->getTempDir(),
+					'from' => 1,
+					'to' => 10,
+				])
 				->split($filename);
 
 			$final_status = Book::STATUS_RECOGNITED_PARTIAL;
 
 			$book->parse_status = Book::STATUS_PROCESS;
-			$book->save();
+			if (!$book->save()) {
+				throw new ValidateException($book->errors);
+			}
 
 			// Перегоняем распознанные страницы в базу данных
 			foreach ($queue_pages['pages'] as $item) {
@@ -187,20 +192,17 @@ class Parser
 				);
 			}
 
-//			$this->mapReduce($this->getTempDir() . '/', array($this, 'recognite'), array('book' => $book, 'pages' => $queue_pages));
-
 			$book->parse_status = $final_status;
-			$book->save();
-
-			print_r($book->getAttributes());
-			die();
+			if (!$book->save()) {
+				throw new ValidateException($book->errors);
+			}
 		}
 
 		$this->_worker->unLock();
 		echo PHP_EOL;
 	}
 
-	private function recognite($img_file, $params = array())
+	public function recognite($img_file, $params = array())
 	{
 		static $recognite_processor = null;
 
@@ -210,7 +212,9 @@ class Parser
 		}
 
 		// Обновим сведения о работе воркера
-		$this->_worker->save();
+		if (!$this->_worker->save()) {
+			throw new ValidateException($this->_worker->errors);
+		}
 
 		if (!file_exists($img_file)) {
 			\Yii::getLogger()->log(sprintf('File %s not found', $img_file), Logger::LEVEL_INFO, self::LOG_CATEGORY . '.recognite');
@@ -238,14 +242,8 @@ class Parser
 
 			if ($page) {
 				// Уже распознано. Игнорим
-				if (file_exists($img_file)) {
-					unlink($img_file);
-				}
-				if (file_exists($img_file . '.txt')) {
-					unlink($img_file . '.txt');
-				}
 				echo '.';
-				return false;
+				continue;
 			}
 
 			$result = $recognite_processor->recognite($img_file, $language, $img_file);
@@ -268,7 +266,13 @@ class Parser
 		}
 		echo '=';
 
-		unlink($img_file);
+		if (file_exists($img_file . '.txt')) {
+			unlink($img_file . '.txt');
+		}
+
+		if (file_exists($img_file)) {
+			unlink($img_file);
+		}
 
 		return true;
 	}
