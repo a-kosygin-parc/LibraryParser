@@ -32,7 +32,7 @@ class PagesController extends Controller
 					[
 						'allow' => true,
 						'actions' => ['update', 'create', 'delete'],
-						'roles' => ['admins'],
+						'roles' => ['@'],
 					],
 					[
 						'allow' => true,

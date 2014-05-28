@@ -39,6 +39,14 @@ class Book extends ActiveRecord
 		);
 	}
 
+	public function setFilename($value)
+	{
+		if (file_exists($value)) {
+			$path_parts = pathinfo($value);
+			$this->extension = strtolower($path_parts['extension']);
+		}
+	}
+
 	public function getPages()
 	{
 		return $this->hasMany('Page', ['book_id' => '_id']);

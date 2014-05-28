@@ -75,4 +75,44 @@ class Worker extends ActiveRecord
 		self::deleteAll(['update_dt' => ['$lt' => $dt]]);
 
 	}
+
+	/**
+	 * Вернёт true, если удалось залочить файл
+	 *
+	 * @param $filename
+	 * @return bool
+	 */
+	public function lock($filename)
+	{
+		$this->processing = $filename;
+		return $this->save();
+	}
+
+	/**
+	 * Вернёт true, если файл захвачен нашим процессом
+	 *
+	 * @param $filename
+	 * @return bool
+	 */
+	public function isLocked($filename)
+	{
+		return $this->processing == $filename;
+	}
+
+	/**
+	 * Разлочить файлы, захваченные воркером
+	 *
+	 * @return bool
+	 */
+	public function unLock()
+	{
+		$this->processing = '';
+		return $this->save();
+	}
+
+	public function __destruct()
+	{
+		// Освободим залоченные нами файлы перед уничтожением воркера
+		$this->unLock();
+	}
 }

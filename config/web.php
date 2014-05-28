@@ -36,7 +36,7 @@ $config = [
 		],
 		'mongodb' => $mongodb,
 		'db' => $db,
-		'authManager' => $authManager
+		//'authManager' => $authManager
 	],
 	'params' => $params,
 ];

@@ -1,9 +1,12 @@
 <?php
 namespace app\library;
 
+use app\core\FileHelper;
+use app\library\Recognite\Processor;
 use app\models\Book;
 use app\models\Page;
 use app\models\Worker;
+use yii\log\Logger;
 use yii\mongodb\Query;
 
 /**
@@ -11,7 +14,10 @@ use yii\mongodb\Query;
  */
 class Parser
 {
+	Const LOG_CATEGORY = 'application.parser';
+
 	private $_prefix = '';
+
 	/**
 	 * @var Worker
 	 */
@@ -44,7 +50,7 @@ class Parser
 				$this->_skip_files[] = $item['filename'];
 			}
 		}
-		return true;
+		return $this;
 	}
 
 	public function start($library_path = 'L:/biblioteka/kolhoz')
@@ -52,9 +58,11 @@ class Parser
 		set_time_limit(0);
 		ini_set('memory_limit', '2048M');
 
+		// Инициируем воркер
 		$this->_worker = new Worker();
 		$this->_worker->insert() || die(print_r($this->_worker->errors, true));
 
+		// Инициируем временную директорию
 		$tmpdir = $this
 			->setPrefix($this->_worker->pid)
 			->getTempDir();
@@ -66,96 +74,46 @@ class Parser
 			//$this->cleanTempDir();
 		}
 
+		// Бутстрапим файлы, которые уже обработаны
 		$this->fillSkipList();
 
-		$this->mapReduce($library_path . '/', array($this, 'splitBookToImages'));
 
-		$this->cleanTempDir();
-		rmdir($this->getTempDir());
+		// Обрабатываем рекурсивно все книжки
+		FileHelper::map($library_path . '/', array($this, 'splitBookToImages'));
+
+		// Подчищаем за собой
+		FileHelper::removeDirectory($this->getTempDir());
+
+		// Освобождаем воркер
 		$this->_worker->delete();
-	}
-
-	private function mapReduce($dir, $func, $params = null) {
-		if (is_dir($dir)) {
-			if ($dh = opendir($dir)) {
-
-				while (($file = readdir($dh)) !== false) {
-					if ($file == '.' || $file=='..') continue;
-					if (is_dir($dir.$file)) {
-						$this->mapReduce($dir . $file.'/', $func);
-					} else {
-						try {
-							if ($params !== null) {
-								$func($dir . $file, $params);
-							}
-							else {
-								$func($dir . $file);
-							}
-						}
-						catch (\Exception $e) {
-							echo $e->getMessage() . "\n";
-						}
-					}
-				}
-				closedir($dh);
-			}
-		}
-		return true;
-	}
-
-	/**
-	 * Вернёт true, если удалось залочить файл
-	 * @param $filename
-	 * @return bool
-	 */
-	private function lock($filename)
-	{
-		$this->_worker->processing = $filename;
-		return $this->_worker->save();
-	}
-
-	/**
-	 * Вернёт true, если файл захвачен нашим процессом
-	 * @param $filename
-	 * @return bool
-	 */
-	private function isLocked($filename)
-	{
-		return $this->_worker->processing == $filename;
-	}
-
-	/**
-	 * Разлочить
-	 * @return bool
-	 */
-	private function unLock()
-	{
-		$this->_worker->processing = '';
-		return $this->_worker->save();
 	}
 
 	private function splitBookToImages($filename)
 	{
+		// Пропускаем уже распознанные файлы
 		if (($pos = array_search($filename, $this->_skip_files)) !== false) {
 			unset($this->_skip_files[$pos]);
-			echo 'skipped';
+			\Yii::getLogger()->log(sprintf('File %s in skip list', $filename), Logger::LEVEL_INFO, self::LOG_CATEGORY);
 			return false;
 		}
 
+		// И те, что были удалены в процессе пропускаем
 		if (!file_exists($filename)) {
-			throw new \Exception('File ' . $filename . ' not found.');
+			\Yii::getLogger()->log(sprintf('File %s not exists', $filename), Logger::LEVEL_INFO, self::LOG_CATEGORY);
+			return false;
 		}
 
-		// Нужно достать расширение файла, чтобы знать чем его обрабатывать
+		// Подбираем правильный сплиттер
+		$splitter = Splitter::create($filename);
 
-		$path_parts = pathinfo($filename);
-
-		if (!in_array(strtolower($path_parts['extension']), array('djvu', 'djv', 'pdf'))) {
-			throw new \Exception($filename . ' not is DJVU expected.');
+		if (!$splitter) {
+			\Yii::getLogger()->log(sprintf('File %s extension not supported', $filename), Logger::LEVEL_INFO, self::LOG_CATEGORY);
+			return false;
 		}
 
-		if (!$this->lock($filename)) {
-			throw new \Exception('Файл залочен другим процессом');
+		if (!$this->_worker->lock($filename)) {
+			\Yii::getLogger()->log(sprintf('File %s is locked by other worker', $filename), Logger::LEVEL_INFO, self::LOG_CATEGORY);
+			return false;
 		}
 
 		// Подсчитаем MD5 файл, чтобы убедиться потом что он не изменился
@@ -167,8 +125,9 @@ class Parser
 			'filename' => $filename,
 		]);
 
-		if (!$this->isLocked($filename)) {
-			throw new \Exception('Кто-то перелочил файл');
+		if (!$this->_worker->isLocked($filename)) {
+			\Yii::getLogger()->log(sprintf('File %s is bad lock', $filename), Logger::LEVEL_INFO, self::LOG_CATEGORY);
+			return false;
 		}
 
 		if (!$book) {
@@ -177,7 +136,7 @@ class Parser
 			$book->hash = $hash;
 			$book->create_dt = new \MongoDate();
 			$book->parse_status = Book::STATUS_NONE;
-			$book->extension = strtolower($path_parts['extension']);
+			$book->extension = strtolower(substr($filename, strrpos('.', $filename) + 1));
 			$book->insert();
 			echo '#';
 		}
@@ -188,7 +147,7 @@ class Parser
 		echo $filename;
 
 		if ($hash != $book->hash) {
-			\Yii::getLogger()->log('Hash "' . $filename . '" is changed.', Logger::LEVEL_WARNING, 'application.parser');
+			\Yii::getLogger()->log('Hash "' . $filename . '" is changed.', Logger::LEVEL_WARNING, self::LOG_CATEGORY);
 		}
 
 		if ($book->parse_status == Book::STATUS_RECOGNITED) {
@@ -202,62 +161,72 @@ class Parser
 		}
 
 		$final_status = Book::STATUS_RECOGNITED;
+
 		if ($book->parse_status != Book::STATUS_PROCESS || $this->_worker->processing == $book->filename) {
 			$this->cleanTempDir();
 
-			switch ($book->extension) {
-				case 'pdf':
-					system(\Yii::$app->params['EXEC_PDF_DECODE'] . '  -r300x300 -sDEVICE=jpeg -o ' . $this->getTempDir() . '\p%d.jpg -dFirstPage=1 -dLastPage=20 "' . $filename . '"');
-					$final_status = Book::STATUS_RECOGNITED_PARTIAL;
-					break;
+			$queue_pages = $splitter
+				->setDestination($this->getTempDir())
+				->setFrom(1)
+				->setTo(10)
+				->split($filename);
 
-				case 'djvu':
-				case 'djv':
-					system(\Yii::$app->params['EXEC_DJVU_DECODE'] . ' --page-range=1-20 --output-format=tif --dpi=300 "' . $filename . '" ' . $this->getTempDir());
-					$final_status = Book::STATUS_RECOGNITED_PARTIAL;
-					break;
-
-				default:
-					throw new \Exception('Unknown extension ' . $book->extension);
-			}
+			$final_status = Book::STATUS_RECOGNITED_PARTIAL;
 
 			$book->parse_status = Book::STATUS_PROCESS;
 			$book->save();
+
+			// Перегоняем распознанные страницы в базу данных
+			foreach ($queue_pages['pages'] as $item) {
+				$this->recognite(
+					$item['filename'],
+					[
+						'page_number' => $item['page'],
+						'book' => $book,
+					]
+				);
+			}
+
+//			$this->mapReduce($this->getTempDir() . '/', array($this, 'recognite'), array('book' => $book, 'pages' => $queue_pages));
+
+			$book->parse_status = $final_status;
+			$book->save();
+
+			print_r($book->getAttributes());
+			die();
 		}
 
-		echo PHP_EOL;
-
-		// Перегоняем распознанные страницы в базу данных
-		$this->mapReduce($this->getTempDir() . '/', array($this, 'recognite'), array('book' => $book));
-
-		$book->parse_status = $final_status;
-		$book->save();
-
-		$this->unLock();
+		$this->_worker->unLock();
 		echo PHP_EOL;
 	}
 
 	private function recognite($img_file, $params = array())
 	{
+		static $recognite_processor = null;
+
+		if ($recognite_processor === null) {
+			$recognite_processor = new Processor();
+			$recognite_processor->setLogFile($this->getTempDir() . '.log');
+		}
+
 		// Обновим сведения о работе воркера
 		$this->_worker->save();
 
 		if (!file_exists($img_file)) {
-			throw new \Exception('File ' . $img_file . ' not found.');
+			\Yii::getLogger()->log(sprintf('File %s not found', $img_file), Logger::LEVEL_INFO, self::LOG_CATEGORY . '.recognite');
+			return false;
 		}
 
 		$book = $params['book'];
 
-		$path_parts = pathinfo($img_file);
-
-		if (!in_array(strtolower($path_parts['extension']), array('tif', 'tiff', 'jpg', 'jpeg'))) {
-			echo '?';
-			return;
+		if (!$recognite_processor->checkFile($img_file)) {
+			\Yii::getLogger()->log(sprintf('File %s not supported', $img_file), Logger::LEVEL_INFO, self::LOG_CATEGORY . '.recognite');
+			return false;
 		}
 
-		$page_number = (int) preg_replace('#[^0-9]#', '', $path_parts['filename']);
+		$page_number = (int) $params['page_number'];
 
-		foreach (array('rus', 'eng') as $language) {
+		foreach (array($recognite_processor::LANG_RUS, $recognite_processor::LANG_ENG) as $language) {
 
 			$attributes = [
 				'book_id' => $book->getPrimaryKey(),
@@ -268,6 +237,7 @@ class Parser
 			$page = Page::findOne($attributes);
 
 			if ($page) {
+				// Уже распознано. Игнорим
 				if (file_exists($img_file)) {
 					unlink($img_file);
 				}
@@ -275,61 +245,62 @@ class Parser
 					unlink($img_file . '.txt');
 				}
 				echo '.';
-				return;
+				return false;
 			}
 
-			$img_file = str_replace(['/', '\\\\'], ['\\', '\\'], $img_file); // windows style
-			$cmd = \Yii::$app->params['EXEC_TESSERACT'] . ' ' . $img_file . ' ' . $img_file . ' -l ' . $language;
-			$cmd .= ' 2>> ' . $this->getTempDir() . '.log';
-			$res = '';
+			$result = $recognite_processor->recognite($img_file, $language, $img_file);
 
-			exec($cmd, $res);
-
-			if (file_exists($img_file . '.txt')) {
-				$attributes['text'] = file_get_contents($img_file . '.txt');
+			if ($result && file_exists($result)) {
+				$attributes['text'] = file_get_contents($result);
 
 				$page = new Page();
 				$page->setAttributes($attributes);
 
 				if (!$page->insert()) {
-					\Yii::getLogger()->log('Error insert ' . var_export($page->getErrors(), true), Logger::LEVEL_ERROR, 'application.parser.mongo');
+					\Yii::getLogger()->log('Error insert ' . var_export($page->getErrors(), true), Logger::LEVEL_ERROR, self::LOG_CATEGORY . '.parser.mongo');
 				}
 
-				unlink($img_file . '.txt');
+				unlink($result);
 			}
 			else {
-				\Yii::getLogger()->log('Not recognite (' . $book->filename . ' Page=' . $page->page . ')', Logger::LEVEL_WARNING, 'application.parser');
+				\Yii::getLogger()->log('Not recognite (' . $book->filename . ' Page=' . $page->page . ')', Logger::LEVEL_WARNING, self::LOG_CATEGORY . '.parser');
 			}
 		}
 		echo '=';
 
 		unlink($img_file);
+
+		return true;
 	}
 
-	private function cleanTempDir()
+
+	/**
+	 * Очистка каталога
+	 *
+	 * Если стоит $remove_self = true, то удалит и себя
+	 * @param bool $remove_self
+	 * @return $this
+	 */
+	private function cleanTempDir($remove_self = false)
 	{
-		$this->mapReduce($this->getTempDir() . '/', 'unlink');
+		FileHelper::map($this->getTempDir() . '/', 'unlink');
 		return $this;
 	}
 
+	/**
+	 * Вернёт путь к временной директории (создаст если нет)
+	 *
+	 * @return mixed|string
+	 */
 	private function getTempDir()
 	{
 		static $tmpdir = null;
 
 		if (!$tmpdir) {
-			$tmpdir = \Yii::$app->getRuntimePath() . '/djvu_tmp' . $this->_prefix;
+			$tmpdir = \Yii::$app->getRuntimePath() . '/tmp' . $this->_prefix;
 			$tmpdir = str_replace(array('\/', '//'), array('/', '/'), $tmpdir);
 		}
 
 		return $tmpdir;
-	}
-
-	private static function getMicrotime()
-	{
-		static $t = null;
-		if ($t === null) {
-			$t = microtime(true);
-		}
-		return - $t + ($t = microtime(true));
 	}
 }
