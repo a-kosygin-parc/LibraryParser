@@ -213,7 +213,8 @@ class Parser
 
 		// Обновим сведения о работе воркера
 		if (!$this->_worker->save()) {
-			throw new ValidateException($this->_worker->errors);
+			\Yii::getLogger()->log(var_export($this->_worker->errors, true), Logger::LEVEL_INFO, self::LOG_CATEGORY . '.recognite');
+			return false;
 		}
 
 		if (!file_exists($img_file)) {
@@ -261,17 +262,17 @@ class Parser
 				unlink($result);
 			}
 			else {
-				\Yii::getLogger()->log('Not recognite (' . $book->filename . ' Page=' . $page->page . ')', Logger::LEVEL_WARNING, self::LOG_CATEGORY . '.parser');
+				\Yii::getLogger()->log('Not recognite (' . $book->filename . ' Page=' . $attributes['page'] . ')', Logger::LEVEL_WARNING, self::LOG_CATEGORY . '.parser');
 			}
 		}
 		echo '=';
 
 		if (file_exists($img_file . '.txt')) {
-			unlink($img_file . '.txt');
+			@unlink($img_file . '.txt');
 		}
 
 		if (file_exists($img_file)) {
-			unlink($img_file);
+			@unlink($img_file);
 		}
 
 		return true;

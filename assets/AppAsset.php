@@ -21,11 +21,14 @@ class AppAsset extends AssetBundle
         'css/site.css',
     ];
     public $js = [
+		'js/app/lib/angular.min.js',
+		'js/app/lib/ui-bootstrap-0.11.0.min.js',
+		'js/app/lib/ui-bootstrap-tpls-0.11.0.min.js',
 		'js/site.js',
     ];
     public $depends = [
-		'yii\web\JqueryAsset',
-        'yii\web\YiiAsset',
+//		'yii\web\JqueryAsset',
+//        'yii\web\YiiAsset',
         'yii\bootstrap\BootstrapAsset',
     ];
 }

@@ -1,9 +1,32 @@
-(function(){
-    $('.js-search-form-hide').on('click', function(){
-        var button = $(this),
-            form = $(document.getElementById(button.data('related')));
+/**
+ * Инициализация общего для всех скопа.
+ * Бутстрапим сведения об авторизованном пользователе. Может ещё что-то
+ * @param $scope
+ * @constructor
+ */
+function InitCtrl($scope) {
+	for (var i in bootstrap) {
+		$scope[i] = bootstrap[i];
+	}
+}
 
-        button.text(form.css('display') == 'none' ? 'Скрыть' : 'Поиск');
-        form.toggleClass('g-hidden');
-    });
-})();
+/**
+ * Меню навигации
+ * @param $scope
+ * @constructor
+ */
+function NavigationCtrl($scope) {
+	$scope.login = function(){
+		alert('login');
+		//<!-- /site/login -->
+	}
+	$scope.logout = function(){
+		alert('logout');
+		//<!-- /site/logout 'linkOptions' => ['data-method' => 'post']], -->
+	}
+}
+
+function Url($scope) {
+	debugger;
+	$http.location.href = href;
+}

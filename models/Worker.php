@@ -39,9 +39,15 @@ class Worker extends ActiveRecord
 		);
 	}
 
+	public function init()
+	{
+		parent::init();
+		//$this->getCollection()->createIndex('processing', ['unique' => true]);
+	}
+
 	public function generatePID()
 	{
-		return str_replace([',', '.'], ['', ''], microtime(true)) . '-' . uniqid();
+		return \Yii::$app->db->createCommand('SELECT UUID()')->queryScalar();
 	}
 
 	/**
@@ -84,8 +90,15 @@ class Worker extends ActiveRecord
 	 */
 	public function lock($filename)
 	{
+		try {
+			$this->save();
+		}
+		catch (\yii\mongodb\Exception $e) {
+			return false;
+		}
+
 		$this->processing = $filename;
-		return $this->save();
+		return true;
 	}
 
 	/**
@@ -106,7 +119,7 @@ class Worker extends ActiveRecord
 	 */
 	public function unLock()
 	{
-		$this->processing = '';
+		$this->processing = $this->generatePID();
 		return $this->save();
 	}
 
